@@ -1,0 +1,7 @@
+student_dataset/load_image_dataset.py
+student_dataset/image_data/mapping.txt
+student_dataset/image_data/test-images-idx3-ubyte
+student_dataset/image_data/test-labels-idx1-ubyte
+student_dataset/image_data/train-images-idx3-ubyte
+student_dataset/image_data/train-labels-idx1-ubyte
+student_dataset/student_failure/train.csv
