@@ -54,7 +54,7 @@ X = df.drop(['score_examen', 'id', 'taille_etudiant'], axis=1)
 
 # Divide data into training and validation subsets
 X_train, X_valid, y_train, y_valid = train_test_split(X, y, train_size=0.8, test_size=0.2, random_state=0)
-print("shape after preprocessing :", X_train.shape, X_valid.shape)
+print("shape before preprocessing :", X_train.shape, X_valid.shape)
 
 if False:
 	# Drop columns with missing values (simplest approach)
@@ -63,7 +63,7 @@ if False:
 	X_valid.drop(cols_with_missing, axis=1, inplace=True)
 
 # Selecting approache to deal with categorical variables
-method = "one_hot_encoding_2"
+method = "ordinal_and_one_hot_encoding"
 if method == "drop_categorical": # 8.995743871459961 and 8.630448577480498
 	# Drop Categorical Variables
 	X_train = X_train.select_dtypes(exclude=['str'])
@@ -84,9 +84,9 @@ elif method == "ordinal_encoding_smart": # 7.508872240333558 and 7.2110806745525
 												["easy","moderate","hard"]])
 	auto_encoder = OrdinalEncoder(categories='auto')
 	preprocessor = ColumnTransformer(transformers=[
-	    # (Nom, Transformateur, Liste des colonnes)
-	    ('ord_manuel', manual_encoder, ['qualité_sommeil', 'évaluation_établissement', 'difficulté_examen']),
-	    ('ord_auto',   auto_encoder,   ['genre', 'diplôme', 'accès_internet', 'méthode_etude'])
+		# (Nom, Transformateur, Liste des colonnes)
+		('ord_manuel', manual_encoder, ['qualité_sommeil', 'évaluation_établissement', 'difficulté_examen']),
+		('ord_auto',   auto_encoder,   ['genre', 'diplôme', 'accès_internet', 'méthode_etude'])
 	], remainder='passthrough') # 'passthrough' veut dire : "garde les autres colonnes telles quelles"
 
 	X_train = preprocessor.fit_transform(X_train)
@@ -98,7 +98,7 @@ elif method == "one_hot_encoding_1": # 7.537241737747192 and 7.210295896459731
 	X_train, X_valid = X_train.align(X_valid, join='left', axis=1)
 elif method == "one_hot_encoding_2": # 7.521292720184326 and 7.210252136884901
 	# One-hot encode the data
-	# Get list of non-categorical variables
+	# Get list of categorical variables
 	s = (X_train.dtypes == 'str')
 	object_cols = list(s[s].index)
 	print("Categorical variables:", object_cols)
@@ -107,9 +107,25 @@ elif method == "one_hot_encoding_2": # 7.521292720184326 and 7.210252136884901
 	preprocessor = ColumnTransformer(transformers=[('onehot', one_hot_encoder, object_cols)], remainder='passthrough')
 	X_train = preprocessor.fit_transform(X_train)
 	X_valid = preprocessor.transform(X_valid)
-elif method == "smart_encoding":
-	# ordinal and one-hot encoding depending of the category
-	pass
+elif method == "ordinal_and_one_hot_encoding": # 7.520595026741028 and 7.211823333794004
+	# ordinal or one-hot encoding depending of the category
+	manual_ordinal_cols = ['qualité_sommeil', 'évaluation_établissement', 'difficulté_examen']
+	one_hot_cols = ['genre', 'diplôme', 'accès_internet', 'méthode_etude']
+	
+	# Apply ordinal encoder to each column with categorical data
+	ordinal_encoder = OrdinalEncoder(categories=[["poor","average","good"],
+												["low","medium","high"],
+												["easy","moderate","hard"]])
+	# Apply ordinal encoder to each column with categorical data
+	one_hot_encoder = OneHotEncoder()
+	preprocessor = ColumnTransformer(transformers=[
+		# (Nom, Transformateur, Liste des colonnes)
+		('ordinal', ordinal_encoder, manual_ordinal_cols),
+		('onehot', one_hot_encoder, one_hot_cols)
+	], remainder='passthrough') # 'passthrough' veut dire : "garde les autres colonnes telles quelles"
+
+	X_train = preprocessor.fit_transform(X_train)
+	X_valid = preprocessor.transform(X_valid)
 else:
 	print("unknown method")
 	exit()
