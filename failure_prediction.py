@@ -15,6 +15,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 
 # --- Données ---
@@ -65,7 +66,7 @@ if False:
 	X_valid.drop(cols_with_missing, axis=1, inplace=True)
 
 # Selecting approache to deal with categorical variables
-method = "ordinal_and_one_hot_encoding"
+method = "one_hot_encoding_2"
 if method == "drop_categorical": # 8.995743871459961 and 8.630448577480498
 	# Drop Categorical Variables
 	X_train = X_train.select_dtypes(exclude=['str'])
@@ -133,31 +134,55 @@ else:
 	exit()
 print("shape after preprocessing :", X_train.shape, X_valid.shape)
 
-#model = XGBRegressor(n_estimators=1000, learning_rate=0.05, n_jobs=4, early_stopping_rounds=50)
-model = XGBRegressor(n_estimators=1000, learning_rate=0.05, n_jobs=4, early_stopping_rounds=50, eval_metric='rmse')
+model_type = 'RandomForest'
+if model_type == 'RandomForest':
+	max_leaf_nodes_search = 2000 # highly depend on choosen preprocessing method
+	max_leaf_nodes_list = np.geomspace(10, max_leaf_nodes_search, num=10).astype(int)
+	MAE_list = []
+	for max_leaf_nodes in max_leaf_nodes_list:
+		model = RandomForestRegressor(max_leaf_nodes=max_leaf_nodes, random_state=0, oob_score=True)
+		model.fit(X_train, y_train)
+		preds_val = model.predict(X_valid)
+		mae = mean_absolute_error(y_valid, preds_val)
+		print("Max leaf nodes:", max_leaf_nodes, "\tMean Absolute Error:", mae, "\tOut-of-Bag Score:", model.oob_score_)
+		MAE_list.append(mae)
+	
+	best_mae = min(MAE_list)
+	best_max_leaf_nodes = max_leaf_nodes_list[MAE_list.index(best_mae)]
+	print("Best Max Leaf Nodes :", best_max_leaf_nodes, "\twith an MAE of :", best_mae)
+	# Create a scatter plot
+	plt.figure()
+	plt.axvline(best_max_leaf_nodes, color='red', linestyle='--', linewidth=1.8, label=f'Best max_leaf_nodes {best_max_leaf_nodes}')
+	plt.legend()
+	plt.plot(max_leaf_nodes_list, MAE_list)
+	plt.xlabel('Max Leaf Nodes')
+	plt.ylabel('MAE')
+	plt.title("Random Forest Regressor MAE Performance")
+	plt.show()
+elif model_type == 'XGBRegressor':
+	model = XGBRegressor(n_estimators=1000, learning_rate=0.05, n_jobs=4, early_stopping_rounds=50, eval_metric='rmse')
+	model.fit(X_train, y_train, eval_set=[(X_valid, y_valid)], verbose=False)
+
+	y_pred = model.predict(X_valid)
+	MAE = mean_absolute_error(y_pred, y_valid)
+	print("Mean Absolute Error: " + str(MAE))
+
+	# Retrieve the RMSE values from the training process
+	results = model.evals_result()
+	epochs = len(results["validation_0"]["rmse"])
+	x_axis = range(0, epochs)
+	# Plot the RMSE values
+	plt.figure()
+	plt.plot(x_axis, results["validation_0"]["rmse"], label="Test")
+	plt.legend()
+	plt.xlabel("Number of Boosting Rounds")
+	plt.ylabel("RMSE") # Root Mean Squared Error
+	plt.title("XGBoost Regressor RMSE Performance")
+	plt.show()
+else:
+	print("unknown model")
+	exit()
 
 #For regression problems, common choices include “rmse” (root mean squared error) and “mae” (mean absolute error).
 #For binary classification, “error” (binary classification error), “logloss” (binary log loss), and “auc” (area under the receiver operating characteristic curve) are frequently used.
 #For multi-class classification settings, “merror” (multi-class classification error) and “mlogloss” (multi-class log loss) are popular options.
-
-model.fit(X_train, y_train,
-             eval_set=[(X_valid, y_valid)], 
-             verbose=False)
-
-y_pred = model.predict(X_valid)
-MAE = mean_absolute_error(y_pred, y_valid)
-print("Mean Absolute Error: " + str(MAE))
-
-# Retrieve the RMSE values from the training process
-results = model.evals_result()
-epochs = len(results["validation_0"]["rmse"])
-x_axis = range(0, epochs)
-
-# Plot the RMSE values
-plt.figure()
-plt.plot(x_axis, results["validation_0"]["rmse"], label="Test")
-plt.legend()
-plt.xlabel("Number of Boosting Rounds")
-plt.ylabel("RMSE") # Root Mean Squared Error
-plt.title("XGBoost Regressor RMSE Performance")
-plt.show()
