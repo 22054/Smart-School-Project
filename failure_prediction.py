@@ -5,9 +5,9 @@
 #from learntools.feature_engineering_new.ex5 import *
 
 import matplotlib.pyplot as plt
-#import numpy as np
+import numpy as np
 import pandas as pd
-#import seaborn as sns
+import seaborn as sns
 #from sklearn.decomposition import PCA
 #from sklearn.feature_selection import mutual_info_regression
 #from sklearn.model_selection import cross_val_score
@@ -40,13 +40,15 @@ from xgboost import XGBRegressor
 #pd.set_option('display.expand_frame_repr', True)
 #pd.set_option('display.width', 1000)
 #pd.set_option('display.max_rows', None)
-small_dataset = True
+graph = True
+small_dataset = False
 if small_dataset:
 	df = pd.read_csv("student_dataset/student_failure/train.csv", nrows=10000) # WARNING : REMOVE NROWS FOR PRODUCTION
 else:
 	df = pd.read_csv("student_dataset/student_failure/train.csv")
 print(df.head(10))
 #print(df.qualité_sommeil)
+
 
 #separate target from predictors
 y = df.score_examen
