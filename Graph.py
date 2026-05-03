@@ -17,7 +17,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error
-from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder, LabelEncoder, StandardScaler
+from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from xgboost import XGBRegressor
 
@@ -67,302 +67,6 @@ else:
 print(df.head(10))
 
 # =============================================================================
-# Section EDA — Exploration des données (Graphes 1 à 5)
-# =============================================================================
-if graph:
-    sns.set(style="whitegrid")
-
-    # =========================================================================
-    # Graphe 1 : Valeurs manquantes par colonne
-    # =========================================================================
-    # Objectif : identifier quelles colonnes nécessitent une imputation avant
-    # l'entraînement. Un traitement rigoureux des valeurs manquantes évite
-    # des biais silencieux dans le modèle.
-    missing = df.isnull().sum().sort_values(ascending=False)
-    missing = missing[missing > 0]  # ne garder que les colonnes avec des NaN
-
-    fig0, ax0 = plt.subplots(figsize=(10, 5))
-    if missing.empty:
-        # Cas sans valeurs manquantes : on l'affiche explicitement
-        ax0.text(0.5, 0.5, 'Aucune valeur manquante dans le dataset',
-                 ha='center', va='center', fontsize=14, color='green',
-                 transform=ax0.transAxes)
-    else:
-        bars0 = ax0.bar(missing.index, missing.values, color=PALETTE[3], alpha=0.85)
-        # Annotation du pourcentage au-dessus de chaque barre
-        for bar, val in zip(bars0, missing.values):
-            ax0.text(bar.get_x() + bar.get_width() / 2,
-                     bar.get_height() + missing.max() * 0.01,
-                     f'{val / len(df):.1%}',
-                     ha='center', va='bottom', fontsize=9, fontweight='bold')
-        ax0.set_ylabel("Nombre de valeurs manquantes", fontsize=11)
-        plt.xticks(rotation=30, ha='right')
-
-    ax0.set_title("Valeurs manquantes par colonne", fontsize=13, fontweight='bold', pad=12)
-    ax0.grid(axis='y', alpha=0.4)
-    plt.tight_layout()
-    # =========================================================================
-    # Graphe 2 : Distribution des scores d'examen (variable cible)
-    # =========================================================================
-    # Objectif : visualiser la forme globale de la distribution de la variable
-    # cible (score_examen), identifier les anomalies (score=19) et le
-    # plafonnement (score=100), et quantifier la proportion d'échecs (<50).
-    s = df['score_examen']
-    n_total = len(s)
-    n_100   = (s == 100).sum()
-    n_fail  = (s < 50).sum()
-    n_19    = (s == 19).sum()
-
-    # Histogramme avec bins de largeur 1 (un bin = un score entier)
-    counts, edges = np.histogram(s, bins=np.arange(12, 102, 1))
-
-    fig1, ax1 = plt.subplots(figsize=(14, 7))
-
-    # Coloration des barres selon la zone sémantique
-    bar_colors = []
-    for left, right in zip(edges[:-1], edges[1:]):
-        mid = (left + right) / 2
-        if mid == 19:
-            bar_colors.append('#E84393')  # anomalie : pic inexpliqué à 19
-        elif mid == 100:
-            bar_colors.append('#DD8452')  # plafonnement : score maximum saturé
-        elif mid < 50:
-            bar_colors.append('#E05C5C')  # zone d'échec
-        else:
-            bar_colors.append('#4C72B0')  # zone de réussite
-
-    ax1.bar(edges[:-1], counts, width=0.9, color=bar_colors,
-            alpha=0.85, align='edge', zorder=2)
-
-    # KDE (Kernel Density Estimate) pour lisser la distribution.
-    # On exclut les scores 100 et 19 qui sont des artefacts et fausseraient
-    # la forme de la courbe de densité.
-    s_kde = s[(s != 100) & (s != 19)]
-    kde = gaussian_kde(s_kde, bw_method=0.08)
-    x_kde = np.linspace(12, 99, 400)
-    kde_vals = kde(x_kde) * len(s_kde)  # mise à l'échelle en nombre d'étudiants
-    ax1.plot(x_kde, kde_vals, color='navy', linewidth=2.0,
-             label='KDE (hors anomalies)', zorder=3)
-
-    # Ligne verticale au seuil d'échec (score < 50)
-    ax1.axvline(50, color='red', linestyle='--', linewidth=2,
-                label=f'Seuil échec 50 — {n_fail:,} étudiants ({n_fail/n_total:.1%})',
-                zorder=4)
-
-    # Annotation de l'anomalie score=19 (pic anormalement élevé)
-    idx_19 = np.where(edges[:-1] == 19)[0]
-    if len(idx_19):
-        h19 = counts[idx_19[0]]
-        ax1.annotate(
-            f'Anomalie\nscore=19\nn={n_19:,}',
-            xy=(19.45, h19), xytext=(24, h19 * 0.88),
-            fontsize=9, color='#E84393', fontweight='bold',
-            arrowprops=dict(arrowstyle='->', color='#E84393', lw=1.5),
-            bbox=dict(boxstyle='round,pad=0.3', fc='#fff0f7', ec='#E84393', lw=1)
-        )
-
-    # Annotation du plafonnement à 100
-    ax1.annotate(
-        f'Plafonnement\nscore=100\nn={n_100:,} ({n_100/n_total:.1%})',
-        xy=(100.45, n_100), xytext=(90, n_100 * 0.92),
-        fontsize=9, color='#DD8452', fontweight='bold',
-        arrowprops=dict(arrowstyle='->', color='#DD8452', lw=1.5),
-        bbox=dict(boxstyle='round,pad=0.3', fc='#fff8f0', ec='#DD8452', lw=1)
-    )
-
-    legend_elements = [
-        mpatches.Patch(facecolor='#4C72B0', alpha=0.85, label='Zone réussite (≥50)'),
-        mpatches.Patch(facecolor='#E05C5C', alpha=0.85,
-                       label=f'Zone échec (<50) — {n_fail/n_total:.1%}'),
-        mpatches.Patch(facecolor='#E84393', alpha=0.85,
-                       label=f'Anomalie score=19 — n={n_19:,}'),
-        mpatches.Patch(facecolor='#DD8452', alpha=0.85,
-                       label=f'Plafonnement score=100 — {n_100/n_total:.1%}'),
-        plt.Line2D([0], [0], color='navy', linewidth=2, label='KDE (hors anomalies)'),
-        plt.Line2D([0], [0], color='red', linestyle='--', linewidth=2,
-                   label='Seuil échec (50)'),
-    ]
-    ax1.legend(handles=legend_elements, loc='upper left', fontsize=9, framealpha=0.9)
-    ax1.set_title(
-        f"Distribution des scores d'examen  —  n={n_total:,}"
-        f"  |  moyenne={s.mean():.1f}  |  médiane={s.median():.0f}",
-        fontsize=14, fontweight='bold', pad=14
-    )
-    ax1.set_xlabel("Score d'examen", fontsize=12)
-    ax1.set_ylabel("Nombre d'étudiants", fontsize=12)
-    ax1.set_xlim(10, 102)
-    ax1.set_xticks(range(10, 101, 5))
-    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x):,}'))
-    ax1.grid(axis='y', alpha=0.4, zorder=0)
-    plt.tight_layout()
-    # =========================================================================
-    # Graphe 3 : Score d'examen selon les variables catégorielles (box plots)
-    # =========================================================================
-    # Objectif : comparer la distribution du score selon chaque modalité
-    # des variables catégorielles. Si les médianes diffèrent significativement
-    # entre modalités, la variable est discriminante et utile pour le modèle.
-    # La ligne rouge à 50 rappelle le seuil d'échec.
-    # Les boîtes sont triées par médiane croissante pour faciliter la lecture.
-    cat_cols = [
-        'diplôme', 'méthode_etude', 'accès_internet',
-        'qualité_sommeil', 'difficulté_examen', 'évaluation_établissement'
-    ]
-    fig3, axes3 = plt.subplots(2, 3, figsize=(16, 10))
-
-    for ax, col in zip(axes3.flat, cat_cols):
-        # Tri des modalités par médiane croissante du score
-        order = df.groupby(col)['score_examen'].median().sort_values().index
-        sns.boxplot(data=df, x=col, y='score_examen',
-                    order=order, ax=ax, hue=col, palette='Set2', legend=False)
-        # Ligne rouge = seuil d'échec
-        ax.axhline(50, color='red', linestyle='--', linewidth=1.2, label='Seuil échec (50)')
-        ax.set_title(f'Score selon {col}', fontsize=11, fontweight='bold')
-        ax.set_xlabel('')
-        ax.set_ylabel("Score d'examen", fontsize=9)
-        ax.tick_params(axis='x', rotation=15)
-        ax.legend(fontsize=8)
-
-    fig3.suptitle(
-        "Distribution du score d'examen selon les variables catégorielles",
-        fontsize=14, fontweight='bold', y=1.01
-    )
-    plt.tight_layout()
-    # =========================================================================
-    # Graphe 4 : Heatmap de corrélation (variables numériques)
-    # =========================================================================
-    # Objectif : mesurer la dépendance linéaire (corrélation de Pearson) entre
-    # toutes les paires de variables numériques. Une forte corrélation avec
-    # score_examen confirme l'utilité d'une variable. Une forte corrélation
-    # entre deux features peut indiquer une redondance (multicolinéarité).
-    # On exclut 'id' (identifiant sans valeur prédictive) et 'taille_etudiant'
-    # (jugé non pertinent).
-    num_cols = [c for c in df.select_dtypes(include='number').columns
-                if c not in ('id', 'taille_etudiant')]
-    corr_matrix = df[num_cols].corr()
-
-    # Masque du triangle supérieur pour éviter la redondance (la matrice est symétrique)
-    mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
-
-    fig4, ax4 = plt.subplots(figsize=(10, 8))
-    sns.heatmap(
-        corr_matrix, mask=mask,
-        annot=True, fmt='.2f',
-        cmap='coolwarm', center=0,
-        linewidths=0.5, ax=ax4,
-        annot_kws={'size': 9}
-    )
-    ax4.set_title(
-        'Matrice de corrélation (Pearson) — variables numériques',
-        fontsize=13, fontweight='bold', pad=12
-    )
-    plt.tight_layout()
-    # =========================================================================
-    # Graphe 5 : Importance des features (Mutual Information)
-    # =========================================================================
-    # La Mutual Information (MI) mesure la dépendance statistique entre chaque
-    # feature et la variable cible binaire (echec = score < 50).
-    # Contrairement à la corrélation de Pearson, la MI capture les relations
-    # non-linéaires, ce qui la rend plus pertinente pour des modèles comme XGBoost.
-    #
-    # Optimisation vitesse :
-    #   mutual_info_classif est en O(n·log n). On tire un échantillon stratifié
-    #   de MI_SAMPLE_SIZE lignes : résultats quasi-identiques (~0.3 % de diff),
-    #   mais ~10× plus rapide sur un grand dataset.
-    print('Feature engineering pour Mutual Information...')
-
-    df_mi = df.copy()
-
-    # Imputation des valeurs manquantes avant le calcul MI :
-    # médiane pour les variables numériques (robuste aux outliers),
-    # mode pour les variables catégorielles (valeur la plus fréquente).
-    df_mi['heures_etude']   = df_mi['heures_etude'].fillna(df_mi['heures_etude'].median())
-    df_mi['accès_internet'] = df_mi['accès_internet'].fillna(df_mi['accès_internet'].mode()[0])
-    df_mi['méthode_etude']  = df_mi['méthode_etude'].fillna(df_mi['méthode_etude'].mode()[0])
-
-    # Feature engineering : nouvelles variables combinant plusieurs signaux.
-    # Ces features capturent des comportements que les variables individuelles
-    # n'expriment pas seules.
-    df_mi['ratio_etude_fete'] = df_mi['heures_etude'] / (df_mi['heures_fête'] + 1)  # +1 évite div/0
-    df_mi['score_bien_etre']  = df_mi['heures_sommeil'] / 12.0   # normalisé entre 0 et 1
-    df_mi['engagement']       = df_mi['assiduité_classe'] * df_mi['heures_etude']  # proxy d'implication
-
-    # Variable cible binaire : 1 = échec (<50), 0 = réussite
-    df_mi['echec'] = (df_mi['score_examen'] < 50).astype(int)
-
-    # Encodage ordinal manuel : l'ordre sémantique est conservé (poor < average < good)
-    ordinal_mappings = {
-        'qualité_sommeil':          {'poor': 0, 'average': 1, 'good': 2},
-        'évaluation_établissement': {'low': 0, 'medium': 1, 'high': 2},
-        'difficulté_examen':        {'easy': 0, 'moderate': 1, 'hard': 2},
-        'accès_internet':           {'no': 0, 'yes': 1},
-    }
-    for col, mapping in ordinal_mappings.items():
-        df_mi[col + '_enc'] = df_mi[col].map(mapping)
-
-    # One-hot pour les variables nominales (sans ordre naturel)
-    df_mi = pd.get_dummies(df_mi, columns=['méthode_etude', 'diplôme'], drop_first=False)
-
-    # Label encoding pour le genre (deux modalités → 0/1)
-    df_mi['genre_enc'] = LabelEncoder().fit_transform(df_mi['genre'])
-
-    MI_FEATURES = (
-        ['age', 'heures_etude', 'assiduité_classe', 'heures_sommeil',
-         'heures_fête', 'ratio_etude_fete', 'score_bien_etre', 'engagement',
-         'qualité_sommeil_enc', 'évaluation_établissement_enc',
-         'difficulté_examen_enc', 'accès_internet_enc', 'genre_enc']
-        + [c for c in df_mi.columns
-           if c.startswith('méthode_etude_') or c.startswith('diplôme_')]
-    )
-
-    X_mi = df_mi[MI_FEATURES].astype(float).fillna(0)
-    y_mi = df_mi['echec']
-
-    # Échantillonnage stratifié : conserve la proportion échec/réussite du dataset
-    n_rows = len(X_mi)
-    if n_rows > MI_SAMPLE_SIZE:
-        print(f'Échantillonnage : {MI_SAMPLE_SIZE:,} / {n_rows:,} lignes '
-              f'({MI_SAMPLE_SIZE/n_rows:.0%}) pour accélérer le calcul MI...')
-        sample_idx = (
-            pd.DataFrame({'y': y_mi})
-            .groupby('y', group_keys=False)
-            .apply(lambda g: g.sample(
-                n=int(MI_SAMPLE_SIZE * len(g) / n_rows),
-                random_state=42
-            ), include_groups=False)
-            .index
-        )
-        X_mi_sample = X_mi.loc[sample_idx]
-        y_mi_sample = y_mi.loc[sample_idx]
-    else:
-        X_mi_sample = X_mi
-        y_mi_sample = y_mi
-
-    print(f'Calcul Mutual Information ({len(MI_FEATURES)} features, '
-          f'{len(X_mi_sample):,} lignes)...')
-
-    # n_neighbors=3 : voisinage réduit → plus rapide, adapté aux grands datasets
-    mi = mutual_info_classif(X_mi_sample, y_mi_sample, random_state=42, n_neighbors=3)
-    mi_series = pd.Series(mi, index=MI_FEATURES).sort_values(ascending=True)
-    print('Calcul MI terminé.')
-
-    fig5, ax5 = plt.subplots(figsize=(10, 9))
-    mi_colors = [PALETTE[3] if v > mi_series.median() else PALETTE[0]
-                 for v in mi_series.values]
-    ax5.barh(mi_series.index, mi_series.values, color=mi_colors)
-    ax5.axvline(mi_series.median(), color='red', linestyle='--', linewidth=1.5)
-    legend_mi = [
-        mpatches.Patch(facecolor=PALETTE[3], label='Score > médiane'),
-        mpatches.Patch(facecolor=PALETTE[0], label='Score ≤ médiane'),
-        plt.Line2D([0], [0], color='red', linestyle='--', linewidth=1.5, label='Médiane'),
-    ]
-    ax5.legend(handles=legend_mi, fontsize=9, framealpha=0.9)
-    ax5.set_title('Importance des features (Mutual Information)',
-                  fontsize=13, fontweight='bold', pad=12)
-    ax5.set_xlabel('Score MI', fontsize=11)
-    ax5.grid(axis='x', alpha=0.4)
-    plt.tight_layout()
-
-# =============================================================================
 # Préparation des données pour l'entraînement
 # =============================================================================
 
@@ -377,6 +81,11 @@ X_train, X_valid, y_train, y_valid = train_test_split(
 )
 print("Shape avant preprocessing :", X_train.shape, X_valid.shape)
 
+# Sauvegarde du DataFrame brut avant transformation pour le feature engineering MI (Graphe 5).
+# Après fit_transform, X_train devient un tableau numpy — les noms de colonnes et les
+# valeurs originales ne sont plus accessibles directement.
+X_train_orig = X_train.copy()
+
 # =============================================================================
 # Encodage des variables catégorielles
 # =============================================================================
@@ -389,13 +98,13 @@ method = "ordinal_and_one_hot_encoding"
 
 if method == "drop_categorical":
     # Suppression des colonnes catégorielles — méthode basique, perd de l'info.
-    # MAE train≈8.99 / valid≈8.63
+    # MAE small dataset≈8.995743871459961 / full dataset≈8.630448577480498
     X_train = X_train.select_dtypes(exclude=['str'])
     X_valid = X_valid.select_dtypes(exclude=['str'])
 
 elif method == "ordinal_encoding_random":
     # Encodage ordinal avec ordre arbitraire (alphabétique).
-    # MAE train≈7.50 / valid≈7.21
+    # MAE small dataset≈7.4998913270568845 / full dataset≈7.21429521
     obj_mask = X_train.dtypes == 'str'
     object_cols = list(obj_mask[obj_mask].index)
     print("Categorical variables:", object_cols)
@@ -405,7 +114,7 @@ elif method == "ordinal_encoding_random":
 
 elif method == "ordinal_encoding_smart":
     # Encodage ordinal avec ordre sémantique défini manuellement.
-    # MAE train≈7.51 / valid≈7.21
+    # MAE small dataset≈7.508872240333558 / full dataset≈7.211080674552554
     manual_encoder = OrdinalEncoder(categories=[
         ["poor", "average", "good"],
         ["low",  "medium",  "high"],
@@ -423,14 +132,14 @@ elif method == "ordinal_encoding_smart":
 
 elif method == "one_hot_encoding_1":
     # One-hot via pandas — align force valid à avoir les mêmes colonnes que train.
-    # MAE train≈7.54 / valid≈7.21
+    # MAE small dataset≈ 7.537241737747192 / full dataset≈7.210295896459731
     X_train = pd.get_dummies(X_train)
     X_valid = pd.get_dummies(X_valid)
     X_train, X_valid = X_train.align(X_valid, join='left', axis=1)
 
 elif method == "one_hot_encoding_2":
     # One-hot via sklearn — plus robuste pour un pipeline de production.
-    # MAE train≈7.52 / valid≈7.21
+    # MAE small dataset≈7.521292720184326 / full dataset≈7.210252136884901
     obj_mask = X_train.dtypes == 'str'
     object_cols = list(obj_mask[obj_mask].index)
     print("Categorical variables:", object_cols)
@@ -445,7 +154,7 @@ elif method == "one_hot_encoding_2":
 elif method == "ordinal_and_one_hot_encoding":
     # Approche mixte : ordinal pour les variables avec ordre naturel,
     # one-hot pour les variables nominales — méthode la plus logique sémantiquement.
-    # MAE train≈7.52 / valid≈7.21
+    # MAE small dataset≈7.520595026741028 / full dataset≈7.211823333794004
     manual_ordinal_cols = ['qualité_sommeil', 'évaluation_établissement', 'difficulté_examen']
     one_hot_cols        = ['genre', 'diplôme', 'accès_internet', 'méthode_etude']
 
@@ -555,9 +264,280 @@ mae_mlp = mean_absolute_error(mlp.predict(X_valid_scaled), y_valid)
 print(f"MLP (réseau de neurones)   MAE : {mae_mlp:.4f}")
 
 # =============================================================================
-# Section Résultats — Graphes 6 à 8
+# Tous les graphes (EDA + résultats) regroupés ici
+# pour réutiliser X_train_dense, les MAE et les objets du pipeline déjà calculés.
 # =============================================================================
 if graph:
+    sns.set_theme(style="whitegrid")
+
+    # =========================================================================
+    # Graphe 1 : Valeurs manquantes par colonne
+    # =========================================================================
+    # Objectif : identifier quelles colonnes nécessitent une imputation avant
+    # l'entraînement. Un traitement rigoureux des valeurs manquantes évite
+    # des biais silencieux dans le modèle.
+    missing = df.isnull().sum().sort_values(ascending=False)
+    missing = missing[missing > 0]  # ne garder que les colonnes avec des NaN
+
+    fig0, ax0 = plt.subplots(figsize=(10, 5))
+    if missing.empty:
+        # Cas sans valeurs manquantes : on l'affiche explicitement
+        ax0.text(0.5, 0.5, 'Aucune valeur manquante dans le dataset',
+                 ha='center', va='center', fontsize=14, color='green',
+                 transform=ax0.transAxes)
+    else:
+        bars0 = ax0.bar(missing.index, missing.values, color=PALETTE[3], alpha=0.85)
+        # Annotation du pourcentage au-dessus de chaque barre
+        for bar, val in zip(bars0, missing.values):
+            ax0.text(bar.get_x() + bar.get_width() / 2,
+                     bar.get_height() + missing.max() * 0.01,
+                     f'{val / len(df):.1%}',
+                     ha='center', va='bottom', fontsize=9, fontweight='bold')
+        ax0.set_ylabel("Nombre de valeurs manquantes", fontsize=11)
+        plt.xticks(rotation=30, ha='right')
+
+    ax0.set_title("Valeurs manquantes par colonne", fontsize=13, fontweight='bold', pad=12)
+    ax0.grid(axis='y', alpha=0.4)
+    plt.tight_layout()
+
+    # =========================================================================
+    # Graphe 2 : Distribution des scores d'examen (variable cible)
+    # =========================================================================
+    # Objectif : visualiser la forme globale de la distribution de la variable
+    # cible (score_examen), identifier les anomalies (score=19) et le
+    # plafonnement (score=100), et quantifier la proportion d'échecs (<50).
+    s = df['score_examen']
+    n_total = len(s)
+    n_100   = (s == 100).sum()
+    n_fail  = (s < 50).sum()
+    n_19    = (s == 19).sum()
+
+    # Histogramme avec bins de largeur 1 (un bin = un score entier)
+    counts, edges = np.histogram(s, bins=np.arange(12, 102, 1))
+
+    fig1, ax1 = plt.subplots(figsize=(14, 7))
+
+    # Coloration des barres selon la zone sémantique
+    bar_colors = []
+    for left, right in zip(edges[:-1], edges[1:]):
+        mid = (left + right) / 2
+        if mid == 19:
+            bar_colors.append('#E84393')  # anomalie : pic inexpliqué à 19
+        elif mid == 100:
+            bar_colors.append('#DD8452')  # plafonnement : score maximum saturé
+        elif mid < 50:
+            bar_colors.append('#E05C5C')  # zone d'échec
+        else:
+            bar_colors.append('#4C72B0')  # zone de réussite
+
+    ax1.bar(edges[:-1], counts, width=0.9, color=bar_colors,
+            alpha=0.85, align='edge', zorder=2)
+
+    # KDE (Kernel Density Estimate) pour lisser la distribution.
+    # On exclut les scores 100 et 19 qui sont des artefacts et fausseraient
+    # la forme de la courbe de densité.
+    s_kde = s[(s != 100) & (s != 19)]
+    kde = gaussian_kde(s_kde, bw_method=0.08)
+    x_kde = np.linspace(12, 99, 400)
+    kde_vals = kde(x_kde) * len(s_kde)  # mise à l'échelle en nombre d'étudiants
+    ax1.plot(x_kde, kde_vals, color='navy', linewidth=2.0,
+             label='KDE (hors anomalies)', zorder=3)
+
+    # Ligne verticale au seuil d'échec (score < 50)
+    ax1.axvline(50, color='red', linestyle='--', linewidth=2,
+                label=f'Seuil échec 50 — {n_fail:,} étudiants ({n_fail/n_total:.1%})',
+                zorder=4)
+
+    # Annotation de l'anomalie score=19 (pic anormalement élevé)
+    idx_19 = np.where(edges[:-1] == 19)[0]
+    if len(idx_19):
+        h19 = counts[idx_19[0]]
+        ax1.annotate(
+            f'Anomalie\nscore=19\nn={n_19:,}',
+            xy=(19.45, h19), xytext=(24, h19 * 0.88),
+            fontsize=9, color='#E84393', fontweight='bold',
+            arrowprops=dict(arrowstyle='->', color='#E84393', lw=1.5),
+            bbox=dict(boxstyle='round,pad=0.3', fc='#fff0f7', ec='#E84393', lw=1)
+        )
+
+    # Annotation du plafonnement à 100
+    ax1.annotate(
+        f'Plafonnement\nscore=100\nn={n_100:,} ({n_100/n_total:.1%})',
+        xy=(100.45, n_100), xytext=(90, n_100 * 0.92),
+        fontsize=9, color='#DD8452', fontweight='bold',
+        arrowprops=dict(arrowstyle='->', color='#DD8452', lw=1.5),
+        bbox=dict(boxstyle='round,pad=0.3', fc='#fff8f0', ec='#DD8452', lw=1)
+    )
+
+    legend_elements = [
+        mpatches.Patch(facecolor='#4C72B0', alpha=0.85, label='Zone réussite (≥50)'),
+        mpatches.Patch(facecolor='#E05C5C', alpha=0.85,
+                       label=f'Zone échec (<50) — {n_fail/n_total:.1%}'),
+        mpatches.Patch(facecolor='#E84393', alpha=0.85,
+                       label=f'Anomalie score=19 — n={n_19:,}'),
+        mpatches.Patch(facecolor='#DD8452', alpha=0.85,
+                       label=f'Plafonnement score=100 — {n_100/n_total:.1%}'),
+        plt.Line2D([0], [0], color='navy', linewidth=2, label='KDE (hors anomalies)'),
+        plt.Line2D([0], [0], color='red', linestyle='--', linewidth=2,
+                   label='Seuil échec (50)'),
+    ]
+    ax1.legend(handles=legend_elements, loc='upper left', fontsize=9, framealpha=0.9)
+    ax1.set_title(
+        f"Distribution des scores d'examen  —  n={n_total:,}"
+        f"  |  moyenne={s.mean():.1f}  |  médiane={s.median():.0f}",
+        fontsize=14, fontweight='bold', pad=14
+    )
+    ax1.set_xlabel("Score d'examen", fontsize=12)
+    ax1.set_ylabel("Nombre d'étudiants", fontsize=12)
+    ax1.set_xlim(10, 102)
+    ax1.set_xticks(range(10, 101, 5))
+    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x):,}'))
+    ax1.grid(axis='y', alpha=0.4, zorder=0)
+    plt.tight_layout()
+
+    # =========================================================================
+    # Graphe 3 : Score d'examen selon les variables catégorielles (box plots)
+    # =========================================================================
+    # Objectif : comparer la distribution du score selon chaque modalité
+    # des variables catégorielles. Si les médianes diffèrent significativement
+    # entre modalités, la variable est discriminante et utile pour le modèle.
+    # La ligne rouge à 50 rappelle le seuil d'échec.
+    # Les boîtes sont triées par médiane croissante pour faciliter la lecture.
+    cat_cols = [
+        'diplôme', 'méthode_etude', 'accès_internet',
+        'qualité_sommeil', 'difficulté_examen', 'évaluation_établissement'
+    ]
+    fig3, axes3 = plt.subplots(2, 3, figsize=(16, 10))
+
+    for ax, col in zip(axes3.flat, cat_cols):
+        # Tri des modalités par médiane croissante du score
+        order = df.groupby(col)['score_examen'].median().sort_values().index
+        sns.boxplot(data=df, x=col, y='score_examen',
+                    order=order, ax=ax, hue=col, palette='Set2', legend=False)
+        # Ligne rouge = seuil d'échec
+        ax.axhline(50, color='red', linestyle='--', linewidth=1.2, label='Seuil échec (50)')
+        ax.set_title(f'Score selon {col}', fontsize=11, fontweight='bold')
+        ax.set_xlabel('')
+        ax.set_ylabel("Score d'examen", fontsize=9)
+        ax.tick_params(axis='x', rotation=15)
+        ax.legend(fontsize=8)
+
+    fig3.suptitle(
+        "Distribution du score d'examen selon les variables catégorielles",
+        fontsize=14, fontweight='bold', y=1.01
+    )
+    plt.tight_layout()
+
+    # =========================================================================
+    # Graphe 4 : Heatmap de corrélation (variables numériques)
+    # =========================================================================
+    # Objectif : mesurer la dépendance linéaire (corrélation de Pearson) entre
+    # toutes les paires de variables numériques. Une forte corrélation avec
+    # score_examen confirme l'utilité d'une variable. Une forte corrélation
+    # entre deux features peut indiquer une redondance (multicolinéarité).
+    # On exclut 'id' (identifiant sans valeur prédictive) et 'taille_etudiant'
+    # (jugé non pertinent).
+    num_cols = [c for c in df.select_dtypes(include='number').columns
+                if c not in ('id', 'taille_etudiant')]
+    corr_matrix = df[num_cols].corr()
+
+    # Masque du triangle supérieur pour éviter la redondance (la matrice est symétrique)
+    mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+
+    fig4, ax4 = plt.subplots(figsize=(10, 8))
+    sns.heatmap(
+        corr_matrix, mask=mask,
+        annot=True, fmt='.2f',
+        cmap='coolwarm', center=0,
+        linewidths=0.5, ax=ax4,
+        annot_kws={'size': 9}
+    )
+    ax4.set_title(
+        'Matrice de corrélation (Pearson) — variables numériques',
+        fontsize=13, fontweight='bold', pad=12
+    )
+    plt.tight_layout()
+
+    # =========================================================================
+    # Graphe 5 : Importance des features (Mutual Information)
+    # Réutilise X_train_dense (déjà encodé + imputé) au lieu de refaire
+    # l'encodage depuis zéro. Les 3 features engineered sont calculées depuis
+    # X_train_orig (DataFrame brut sauvegardé avant transformation).
+    # =========================================================================
+    # La Mutual Information (MI) mesure la dépendance statistique entre chaque
+    # feature et la variable cible binaire (echec = score < 50).
+    # Contrairement à la corrélation de Pearson, la MI capture les relations
+    # non-linéaires, ce qui la rend plus pertinente pour des modèles comme XGBoost.
+    print('Feature engineering pour Mutual Information...')
+
+    # Noms des features issus du preprocessor sklearn — partagés avec le Graphe 8
+    try:
+        raw_names = preprocessor.get_feature_names_out()
+        feat_names_base = [n.split('__', 1)[-1] for n in raw_names]
+    except Exception:
+        feat_names_base = [f'feature_{i}' for i in range(X_train_dense.shape[1])]
+
+    # Features engineered calculées depuis les valeurs brutes d'entraînement.
+    # Ces features capturent des comportements que les variables individuelles
+    # n'expriment pas seules.
+    he = X_train_orig['heures_etude'].fillna(X_train_orig['heures_etude'].median())
+    ratio_ef   = (he / (X_train_orig['heures_fête'] + 1)).values.reshape(-1, 1)  # +1 évite div/0
+    bien_etre  = (X_train_orig['heures_sommeil'] / 12.0).values.reshape(-1, 1)   # normalisé 0-1
+    engagement = (X_train_orig['assiduité_classe'] * he).values.reshape(-1, 1)   # proxy d'implication
+
+    X_mi_arr = np.hstack([X_train_dense, ratio_ef, bien_etre, engagement])
+    mi_feature_names = feat_names_base + ['ratio_etude_fete', 'score_bien_etre', 'engagement']
+
+    X_mi = pd.DataFrame(X_mi_arr, columns=mi_feature_names).fillna(0).astype(float)
+    # Variable cible binaire : 1 = échec (<50), 0 = réussite (index réinitialisé pour aligner avec X_mi)
+    y_mi = (y_train < 50).astype(int).reset_index(drop=True)
+
+    # Échantillonnage stratifié : conserve la proportion échec/réussite du dataset.
+    # mutual_info_classif est en O(n·log n) — échantillonner à MI_SAMPLE_SIZE lignes
+    # donne des résultats quasi-identiques (~0.3 % de diff) mais est ~10× plus rapide.
+    n_rows = len(X_mi)
+    if n_rows > MI_SAMPLE_SIZE:
+        print(f'Échantillonnage : {MI_SAMPLE_SIZE:,} / {n_rows:,} lignes '
+              f'({MI_SAMPLE_SIZE/n_rows:.0%}) pour accélérer le calcul MI...')
+        sample_idx = (
+            pd.DataFrame({'y': y_mi})
+            .groupby('y', group_keys=False)
+            .apply(lambda g: g.sample(
+                n=int(MI_SAMPLE_SIZE * len(g) / n_rows),
+                random_state=42
+            ), include_groups=False)
+            .index
+        )
+        X_mi_sample = X_mi.loc[sample_idx]
+        y_mi_sample = y_mi.loc[sample_idx]
+    else:
+        X_mi_sample = X_mi
+        y_mi_sample = y_mi
+
+    print(f'Calcul Mutual Information ({len(mi_feature_names)} features, '
+          f'{len(X_mi_sample):,} lignes)...')
+
+    # n_neighbors=3 : voisinage réduit → plus rapide, adapté aux grands datasets
+    mi = mutual_info_classif(X_mi_sample, y_mi_sample, random_state=42, n_neighbors=3)
+    mi_series = pd.Series(mi, index=mi_feature_names).sort_values(ascending=True)
+    print('Calcul MI terminé.')
+
+    fig5, ax5 = plt.subplots(figsize=(10, 9))
+    mi_colors = [PALETTE[3] if v > mi_series.median() else PALETTE[0]
+                 for v in mi_series.values]
+    ax5.barh(mi_series.index, mi_series.values, color=mi_colors)
+    ax5.axvline(mi_series.median(), color='red', linestyle='--', linewidth=1.5)
+    legend_mi = [
+        mpatches.Patch(facecolor=PALETTE[3], label='Score > médiane'),
+        mpatches.Patch(facecolor=PALETTE[0], label='Score ≤ médiane'),
+        plt.Line2D([0], [0], color='red', linestyle='--', linewidth=1.5, label='Médiane'),
+    ]
+    ax5.legend(handles=legend_mi, fontsize=9, framealpha=0.9)
+    ax5.set_title('Importance des features (Mutual Information)',
+                  fontsize=13, fontweight='bold', pad=12)
+    ax5.set_xlabel('Score MI', fontsize=11)
+    ax5.grid(axis='x', alpha=0.4)
+    plt.tight_layout()
 
     # =========================================================================
     # Graphe 6 : Comparaison des modèles (MAE)
@@ -604,6 +584,7 @@ if graph:
     ax6.legend(fontsize=10)
     ax6.grid(axis='y', alpha=0.4)
     plt.tight_layout()
+
     # =========================================================================
     # Graphe 7 : Courbe d'apprentissage XGBoost (RMSE vs rounds)
     # =========================================================================
@@ -630,6 +611,7 @@ if graph:
     ax7.legend(fontsize=10)
     ax7.grid(alpha=0.4)
     plt.tight_layout()
+
     # =========================================================================
     # Graphe 8 : Importance des features XGBoost (gain)
     # =========================================================================
@@ -638,19 +620,9 @@ if graph:
     # par chaque feature à chaque fois qu'elle est utilisée dans un arbre.
     # Ce graphe complète la Mutual Information (Graphe 5) : la MI est calculée
     # avant l'entraînement du modèle, l'importance XGBoost est calculée après.
-    fi_vals = model_xgb.feature_importances_
-
-    # Récupération des noms de features depuis le preprocessor sklearn.
-    # get_feature_names_out() retourne des noms préfixés ('ordinal__qualité_sommeil')
-    # que l'on nettoie en retirant le préfixe.
-    try:
-        raw_names = preprocessor.get_feature_names_out()
-        feat_names = [n.split('__', 1)[-1] for n in raw_names]
-    except Exception:
-        # Fallback si get_feature_names_out() n'est pas disponible (sklearn < 1.0)
-        feat_names = [f'feature_{i}' for i in range(len(fi_vals))]
-
-    fi_series = pd.Series(fi_vals, index=feat_names).sort_values(ascending=True)
+    # feat_names_base est réutilisé depuis le Graphe 5 — aucun recalcul nécessaire.
+    fi_vals   = model_xgb.feature_importances_
+    fi_series = pd.Series(fi_vals, index=feat_names_base).sort_values(ascending=True)
 
     # On n'affiche que les 20 features les plus importantes pour la lisibilité
     fi_top = fi_series.tail(20)
