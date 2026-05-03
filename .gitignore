@@ -5,3 +5,4 @@ student_dataset/image_data/test-labels-idx1-ubyte
 student_dataset/image_data/train-images-idx3-ubyte
 student_dataset/image_data/train-labels-idx1-ubyte
 student_dataset/student_failure/train.csv
+student_dataset/__pycache__/
