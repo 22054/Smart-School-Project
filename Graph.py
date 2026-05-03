@@ -270,6 +270,14 @@ print(f"MLP (réseau de neurones)   MAE : {mae_mlp:.4f}")
 if graph:
     sns.set_theme(style="whitegrid")
 
+    # Noms des features issus du preprocessor — calculés une seule fois ici,
+    # réutilisés dans les Graphes 4, 5 et 8.
+    try:
+        raw_names = preprocessor.get_feature_names_out()
+        feat_names_base = [n.split('__', 1)[-1] for n in raw_names]
+    except Exception:
+        feat_names_base = [f'feature_{i}' for i in range(X_train_dense.shape[1])]
+
     # =========================================================================
     # Graphe 1 : Valeurs manquantes par colonne
     # =========================================================================
@@ -429,33 +437,42 @@ if graph:
     plt.tight_layout()
 
     # =========================================================================
-    # Graphe 4 : Heatmap de corrélation (variables numériques)
+    # Graphe 4 : Heatmap de corrélation (toutes les variables après encodage)
     # =========================================================================
     # Objectif : mesurer la dépendance linéaire (corrélation de Pearson) entre
-    # toutes les paires de variables numériques. Une forte corrélation avec
-    # score_examen confirme l'utilité d'une variable. Une forte corrélation
-    # entre deux features peut indiquer une redondance (multicolinéarité).
-    # On exclut 'id' (identifiant sans valeur prédictive) et 'taille_etudiant'
-    # (jugé non pertinent).
-    num_cols = [c for c in df.select_dtypes(include='number').columns
-                if c not in ('id', 'taille_etudiant')]
-    corr_matrix = df[num_cols].corr()
+    # toutes les paires de variables — y compris les catégorielles encodées.
+    # On réutilise X_train_dense (déjà encodé + imputé) et feat_names_base
+    # pour avoir toutes les features sur une même échelle numérique.
+    # score_examen (y_train) est ajouté pour visualiser la corrélation de chaque
+    # feature avec la variable cible.
+    df_corr = pd.DataFrame(X_train_dense, columns=feat_names_base)
+    df_corr['score_examen'] = y_train.values
+
+    corr_matrix = df_corr.corr()
 
     # Masque du triangle supérieur pour éviter la redondance (la matrice est symétrique)
     mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
 
-    fig4, ax4 = plt.subplots(figsize=(10, 8))
+    # Taille et police adaptées au nombre de features
+    n_feats = len(df_corr.columns)
+    fig_w   = max(12, n_feats * 0.65)
+    fig_h   = max(10, n_feats * 0.55)
+    annot_sz = max(5, 9 - n_feats // 6)
+
+    fig4, ax4 = plt.subplots(figsize=(fig_w, fig_h))
     sns.heatmap(
         corr_matrix, mask=mask,
         annot=True, fmt='.2f',
         cmap='coolwarm', center=0,
-        linewidths=0.5, ax=ax4,
-        annot_kws={'size': 9}
+        linewidths=0.3, ax=ax4,
+        annot_kws={'size': annot_sz}
     )
     ax4.set_title(
-        'Matrice de corrélation (Pearson) — variables numériques',
+        'Matrice de corrélation (Pearson) — toutes les variables (après encodage)',
         fontsize=13, fontweight='bold', pad=12
     )
+    ax4.tick_params(axis='x', rotation=45, labelsize=max(6, annot_sz))
+    ax4.tick_params(axis='y', labelsize=max(6, annot_sz))
     plt.tight_layout()
 
     # =========================================================================
@@ -470,12 +487,7 @@ if graph:
     # non-linéaires, ce qui la rend plus pertinente pour des modèles comme XGBoost.
     print('Feature engineering pour Mutual Information...')
 
-    # Noms des features issus du preprocessor sklearn — partagés avec le Graphe 8
-    try:
-        raw_names = preprocessor.get_feature_names_out()
-        feat_names_base = [n.split('__', 1)[-1] for n in raw_names]
-    except Exception:
-        feat_names_base = [f'feature_{i}' for i in range(X_train_dense.shape[1])]
+    # feat_names_base est déjà calculé au début du bloc graphes — pas de recalcul.
 
     # Features engineered calculées depuis les valeurs brutes d'entraînement.
     # Ces features capturent des comportements que les variables individuelles
