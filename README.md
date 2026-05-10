@@ -1,6 +1,6 @@
 # Smart School Project
 
-**Smart School** est un projet d'intelligence artificielle visant à automatiser des processus clés pour les établissements scolaires : l'identification précoce des élèves en difficulté et la correction automatisée de copies manuscrites.
+**Smart School** est un projet d'intelligence artificielle visant à automatiser des processus clés pour les établissements scolaires : l'identification précoce des élèves en difficulté et la correction automatisée de copies manuscrites. Les données utilisées student_dataset proviennent de claco et nous ont été fournie par l'enseignant.
 
 ---
 
